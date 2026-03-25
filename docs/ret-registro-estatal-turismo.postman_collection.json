@@ -1,0 +1,71 @@
+{
+  "info": {
+    "name": "RET - Registro Estatal de Turismo",
+    "_postman_id": "8bbd11d4-0ad8-45a1-a834-9d786346bf40",
+    "description": "Coleccion de pruebas para la API de inyeccion al Sistema RET.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3001"
+    },
+    {
+      "key": "ret_token",
+      "value": "RET-TEST-2026-STATIC-TOKEN"
+    }
+  ],
+  "item": [
+    {
+      "name": "Documentacion RET",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/docs/ret/registro-estatal-turismo",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "docs",
+            "ret",
+            "registro-estatal-turismo"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Registro Estatal de Turismo",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{ret_token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"folioSolicitud\": \"RET-TEST-0001\",\n  \"fechaSolicitud\": \"2026-03-25T10:00:00-06:00\",\n  \"tipoSolicitante\": \"Persona Moral\",\n  \"nombreSolicitante\": \"Hotel Demo del Centro SA de CV\",\n  \"rfc\": \"XAXX010101000\",\n  \"correoElectronico\": \"demo.ret@sectur.gob.mx\",\n  \"telefono\": \"5555555555\",\n  \"municipio\": \"Oaxaca de Juarez\",\n  \"nombreComercial\": \"Hotel Demo del Centro\",\n  \"observaciones\": \"Consumo de prueba para RET.\",\n  \"datosTramite\": {\n    \"tipoEstablecimiento\": \"Hospedaje\",\n    \"direccion\": \"Av. Principal 100, Centro\",\n    \"localidad\": \"Oaxaca de Juarez\",\n    \"codigoPostal\": \"68000\",\n    \"representanteLegal\": \"Maria Perez\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/ret/registro-estatal-turismo",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ret",
+            "registro-estatal-turismo"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}

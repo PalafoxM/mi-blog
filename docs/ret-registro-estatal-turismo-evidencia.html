@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Evidencia API RET</title>
+  <style>
+    :root {
+      --bg: #f5f1e8;
+      --panel: #fffdf8;
+      --ink: #1f2933;
+      --accent: #005f73;
+      --border: #d9c7a2;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #f5f1e8, #e7dcc8);
+      color: var(--ink);
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+    h1, h2 {
+      margin: 0 0 16px;
+    }
+    .hero {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 12px 30px rgba(31, 41, 51, 0.08);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 12px 30px rgba(31, 41, 51, 0.08);
+    }
+    .pill {
+      display: inline-block;
+      background: #dceef2;
+      color: var(--accent);
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      margin-bottom: 14px;
+      font-weight: 600;
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #172026;
+      color: #f8fafc;
+      padding: 16px;
+      border-radius: 14px;
+      overflow: auto;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    ul {
+      padding-left: 18px;
+      margin: 12px 0 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <span class="pill">Registro Estatal de Turismo</span>
+      <h1>Evidencia grafica de consumo</h1>
+      <p>Ambiente de pruebas disponible en <strong>http://localhost:3001/api/ret/registro-estatal-turismo</strong></p>
+      <p>Autorizacion: <strong>Authorization: Bearer RET-TEST-2026-STATIC-TOKEN</strong></p>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Peticion</h2>
+        <pre>{
+  "folioSolicitud": "RET-TEST-0001",
+  "fechaSolicitud": "2026-03-25T10:00:00-06:00",
+  "tipoSolicitante": "Persona Moral",
+  "nombreSolicitante": "Hotel Demo del Centro SA de CV",
+  "rfc": "XAXX010101000",
+  "correoElectronico": "demo.ret@sectur.gob.mx",
+  "telefono": "5555555555",
+  "municipio": "Oaxaca de Juarez",
+  "nombreComercial": "Hotel Demo del Centro",
+  "observaciones": "Consumo de prueba para RET.",
+  "datosTramite": {
+    "tipoEstablecimiento": "Hospedaje",
+    "direccion": "Av. Principal 100, Centro",
+    "localidad": "Oaxaca de Juarez",
+    "codigoPostal": "68000",
+    "representanteLegal": "Maria Perez"
+  }
+}</pre>
+      </article>
+
+      <article class="card">
+        <h2>Respuesta exitosa</h2>
+        <pre>{
+  "error": false,
+  "codigo": "RET-000",
+  "mensaje": "Solicitud procesada correctamente en ambiente de pruebas",
+  "observacion": "La informacion fue aceptada por la API de prueba del RET",
+  "ambiente": "pruebas",
+  "tramite": "Registro Estatal de Turismo",
+  "folioSolicitud": "RET-TEST-0001",
+  "folioSeguimiento": "RET-1742896800000",
+  "fechaRecepcion": "2026-03-25T16:00:00.000Z"
+}</pre>
+      </article>
+
+      <article class="card">
+        <h2>Respuesta con error</h2>
+        <pre>{
+  "error": true,
+  "codigo": "RET-400",
+  "mensaje": "Datos obligatorios incompletos",
+  "observacion": "Campos faltantes: municipio, datosTramite.codigoPostal"
+}</pre>
+      </article>
+
+      <article class="card">
+        <h2>Codigos de error</h2>
+        <ul>
+          <li>RET-000: Solicitud aceptada</li>
+          <li>RET-400: Datos faltantes o invalidos</li>
+          <li>RET-401: Token ausente o invalido</li>
+          <li>RET-409: Folio duplicado</li>
+          <li>RET-500: Error interno</li>
+        </ul>
+      </article>
+    </section>
+  </div>
+</body>
+</html>
