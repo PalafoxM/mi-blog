@@ -20,7 +20,7 @@ const {
 app.use(bodyParser.json());
 app.use('/docs', express.static(path.join(__dirname, 'docs')));
 
-const staticToken = token; 
+const staticToken = token;
 const retApiToken = retStaticToken || 'RET-TEST-2026-STATIC-TOKEN';
 const retTestUrl = retTestBaseUrl || 'http://localhost:3001';
 const retProdUrl = retProdBaseUrl || 'https://api-ret-produccion.example.com';
@@ -41,10 +41,10 @@ const dbConfig = {
 // Función para crear conexión por cada operación (PARA EL CHECADOR)
 async function withDatabaseConnection(callback) {
     let connection;
-    
+
     try {
         connection = mysql.createConnection(dbConfig);
-        
+
         await new Promise((resolve, reject) => {
             connection.connect((err) => {
                 if (err) {
@@ -54,10 +54,10 @@ async function withDatabaseConnection(callback) {
                 resolve();
             });
         });
-        
+
         const result = await callback(connection);
         return result;
-        
+
     } catch (error) {
         console.error('❌ Error con conexión a BD:', error.message);
         throw error;
@@ -112,35 +112,35 @@ function query(sql, params) {
 // ==================== FUNCIONES DEL CHECADOR ====================
 
 // Parámetros de negocio
-const MIN_GAP_SECONDS  = 60;
+const MIN_GAP_SECONDS = 60;
 const MIN_STAY_SECONDS = 60;
 
 // Utilidades de fecha/hora
 function toYMD(date) {
-  const d = new Date(date);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+    const d = new Date(date);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
 }
 
 function toHMS(date) {
-  const d = new Date(date);
-  return [d.getHours(), d.getMinutes(), d.getSeconds()]
-    .map(v => String(v).padStart(2, '0')).join(':');
+    const d = new Date(date);
+    return [d.getHours(), d.getMinutes(), d.getSeconds()]
+        .map(v => String(v).padStart(2, '0')).join(':');
 }
 
 function diffSeconds(a, b) {
-  return Math.floor((new Date(b) - new Date(a)) / 1000);
+    return Math.floor((new Date(b) - new Date(a)) / 1000);
 }
 
 function getPunchType(registro) {
-  if (typeof registro.state === 'number') {
-    const s = registro.state;
-    if ([0,3,4].includes(s)) return 'IN';
-    if ([1,2,5].includes(s)) return 'OUT';
-  }
-  return null;
+    if (typeof registro.state === 'number') {
+        const s = registro.state;
+        if ([0, 3, 4].includes(s)) return 'IN';
+        if ([1, 2, 5].includes(s)) return 'OUT';
+    }
+    return null;
 }
 
 
@@ -151,18 +151,18 @@ function getPunchType(registro) {
 // Middleware para verificar el token JWT
 function verifyStaticToken(req, res, next) {
     const bearerHeader = req.headers['authorization'];
-  
+
     if (typeof bearerHeader !== 'undefined') {
         const token = bearerHeader.split(' ')[1];
-       
-            if (token != 'ZRnsLEykJAMTEvacurIPAMAeRvelINclOg') {
-                return res.status(403).json({ error: true, respuesta: 'Token inválido o expirado' });
-            } else {
-                const data = req.body;
-                req.userData = data;
-                next();
-            }
-        
+
+        if (token != 'ZRnsLEykJAMTEvacurIPAMAeRvelINclOg') {
+            return res.status(403).json({ error: true, respuesta: 'Token inválido o expirado' });
+        } else {
+            const data = req.body;
+            req.userData = data;
+            next();
+        }
+
     } else {
         res.status(403).json({ error: true, respuesta: 'Token no proporcionado' });
     }
@@ -476,6 +476,7 @@ app.post('/api/ret/registro-estatal-turismo', verifyRetStaticToken, async (req, 
 
 app.post('/getTabla', verifyStaticToken, async (req, res) => {
     const { data } = req.body;
+
     const response = {
         error: true,
         respuesta: 'Error|Parámetros de entrada',
@@ -644,19 +645,20 @@ app.post('/getTabla', verifyStaticToken, async (req, res) => {
 
 app.post('/saveTabla', verifyStaticToken, async (req, res) => {
     const { data, config, bitacora } = req.body;
+
     let response = {
         error: true,
         respuesta: 'Error en la operación',
     };
     let idRegistro = 0;
-    
+
     try {
         await beginTransaction();
 
         if (config.editar) {
             const selectSQL = `SELECT * FROM ${config.tabla} WHERE ${Object.keys(config.idEditar).map(key => `${key} = ?`).join(' AND ')}`;
             const existingRecord = await query(selectSQL, Object.values(config.idEditar));
-            
+
             if (!existingRecord || existingRecord.length === 0) {
                 response.respuesta = 'Error|No se encontró el registro para editar';
                 await rollbackTransaction();
@@ -665,7 +667,7 @@ app.post('/saveTabla', verifyStaticToken, async (req, res) => {
 
             const updateSQL = `UPDATE ${config.tabla} SET ? WHERE ${Object.keys(config.idEditar).map(key => `${key} = ?`).join(' AND ')}`;
             const updateResult = await query(updateSQL, [data, ...Object.values(config.idEditar)]);
-           
+
             if (updateResult.affectedRows === 0) {
                 response.respuesta = 'Error|No se pudo actualizar el registro';
                 await rollbackTransaction();
@@ -676,7 +678,7 @@ app.post('/saveTabla', verifyStaticToken, async (req, res) => {
         } else {
             const insertSQL = `INSERT INTO ${config.tabla} SET ?`;
             const insertResult = await query(insertSQL, data);
-            
+
             if (insertResult.affectedRows === 0) {
                 response.respuesta = 'Error|No se pudo insertar el registro';
                 await rollbackTransaction();
@@ -684,15 +686,6 @@ app.post('/saveTabla', verifyStaticToken, async (req, res) => {
             }
             idRegistro = insertResult.insertId;
         }
-
-        const bitacoraSQL = `INSERT INTO bitacora SET ?`;
-        const bitacoraData = {
-            script: bitacora.script,
-            user: bitacora.id_user,
-            table: config.tabla,
-            keyvalue: idRegistro
-        };
-        await query(bitacoraSQL, bitacoraData);
 
         await commitTransaction();
 
