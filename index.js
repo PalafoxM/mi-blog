@@ -75,38 +75,33 @@ async function withDatabaseConnection(callback) {
 
 
 // Conexión permanente para la API (mantener abierta)
-const connection = mysql.createConnection(dbConfig);
+// -------------------------------------------------
+// Pool de conexiones MySQL (reemplaza la conexión única)
+// -------------------------------------------------
+const pool = mysql.createPool({
+  ...dbConfig,
+  connectionLimit: 10, // Máximo de conexiones simultáneas
+  waitForConnections: true,
+  queueLimit: 0,
+});
+const promisePool = pool.promise();
 
-// Conectar a la base de datos para la API
-(async () => {
-    try {
-        await new Promise((resolve, reject) => {
-            connection.connect((err) => {
-                if (err) {
-                    reject(err);
-                    return;
-                }
-                console.log('Conexión a la base de datos MariaDB establecida para API.');
-                resolve();
-            });
-        });
-    } catch (err) {
-        console.error('Error al conectar a la base de datos:', err);
-        process.exit(1);
-    }
-})();
+// Opcional: Verificar conexión al iniciar la aplicación
+promisePool.getConnection()
+  .then(conn => {
+    console.log('Conexión a la base de datos MariaDB establecida (pool).');
+    conn.release();
+  })
+  .catch(err => {
+    console.error('Error al conectar al pool de MySQL:', err);
+    process.exit(1);
+  });
 
 // Función query para la API (usa conexión permanente)
-function query(sql, params) {
-    console.log(sql, params);
-    return new Promise((resolve, reject) => {
-        connection.query(sql, params, (err, result) => {
-            if (err) {
-                return reject(err);
-            }
-            resolve(result);
-        });
-    });
+async function query(sql, params) {
+  console.log(sql, params);
+  const [rows] = await promisePool.execute(sql, params);
+  return rows;
 }
 
 // ==================== FUNCIONES DEL CHECADOR ====================
@@ -338,34 +333,20 @@ function buildRetApiDocumentation() {
 }
 
 // Funciones de transacción (para la API)
-function beginTransaction() {
-    return new Promise((resolve, reject) => {
-        connection.beginTransaction(err => {
-            if (err) {
-                return reject(err);
-            }
-            resolve();
-        });
-    });
+async function beginTransaction() {
+  const conn = await promisePool.getConnection();
+  await conn.beginTransaction();
+  return conn;
 }
 
-function commitTransaction() {
-    return new Promise((resolve, reject) => {
-        connection.commit(err => {
-            if (err) {
-                return reject(err);
-            }
-            resolve();
-        });
-    });
+async function commitTransaction(conn) {
+  await conn.commit();
+  conn.release();
 }
 
-function rollbackTransaction() {
-    return new Promise((resolve, reject) => {
-        connection.rollback(() => {
-            resolve();
-        });
-    });
+async function rollbackTransaction(conn) {
+  await conn.rollback();
+  conn.release();
 }
 
 // ==================== ENDPOINTS DE LA API ====================
@@ -653,7 +634,7 @@ app.post('/saveTabla', verifyStaticToken, async (req, res) => {
     let idRegistro = 0;
 
     try {
-        await beginTransaction();
+        const conn = await beginTransaction();
 
         if (config.editar) {
             const selectSQL = `SELECT * FROM ${config.tabla} WHERE ${Object.keys(config.idEditar).map(key => `${key} = ?`).join(' AND ')}`;
@@ -661,7 +642,7 @@ app.post('/saveTabla', verifyStaticToken, async (req, res) => {
 
             if (!existingRecord || existingRecord.length === 0) {
                 response.respuesta = 'Error|No se encontró el registro para editar';
-                await rollbackTransaction();
+                await rollbackTransaction(conn);
                 return res.json(response);
             }
 
@@ -670,7 +651,7 @@ app.post('/saveTabla', verifyStaticToken, async (req, res) => {
 
             if (updateResult.affectedRows === 0) {
                 response.respuesta = 'Error|No se pudo actualizar el registro';
-                await rollbackTransaction();
+                await rollbackTransaction(conn);
                 return res.json(response);
             }
 
@@ -681,20 +662,20 @@ app.post('/saveTabla', verifyStaticToken, async (req, res) => {
 
             if (insertResult.affectedRows === 0) {
                 response.respuesta = 'Error|No se pudo insertar el registro';
-                await rollbackTransaction();
+                await rollbackTransaction(conn);
                 return res.json(response);
             }
             idRegistro = insertResult.insertId;
         }
 
-        await commitTransaction();
+        await commitTransaction(conn);
 
         response.error = false;
         response.respuesta = 'Operación realizada correctamente';
         response.idRegistro = idRegistro;
     } catch (err) {
         console.error('❌ Error procesando registro:', err);
-        await rollbackTransaction();
+        if (conn) await rollbackTransaction(conn);
         response.respuesta = `Error|${err.message}`;
     }
 
