@@ -696,7 +696,7 @@ async function ejecutarLogicaGuardarForm(conn, controlador, dbfield, clave) {
  * // Consultar archivos legales e imágenes:
  * { "data": { "tabla": "ret_archivo_legal", "where": { "clave": "RET011100042" } } }
  */
-app.post('/getTabla', verifyStaticToken, async (req, res) => {
+app.get('/getTabla', verifyStaticToken, async (req, res) => {
     const { data } = req.body;
 
     const response = {
