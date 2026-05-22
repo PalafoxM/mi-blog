@@ -4,6 +4,7 @@ const bodyParser = require('body-parser');
 const jwt = require('jsonwebtoken');
 const mysql = require('mysql2');
 const path = require('path');
+const he = require('he'); // Decodificador de entidades HTML (resuelve &iacute;, &aacute;, etc.)
 
 const {
     token,
@@ -102,6 +103,43 @@ async function query(sql, params) {
   console.log(sql, params);
   const [rows] = await promisePool.execute(sql, params);
   return rows;
+}
+
+// -------------------------------------------------
+// Decodificación de entidades HTML en respuestas
+// -------------------------------------------------
+// Algunos valores se almacenaron en la BD codificados como entidades HTML
+// (p.ej. "Gu&iacute;a de Tur&iacute;stas"). Esta función los devuelve ya
+// legibles ("Guía de Turistas") SIN modificar la base de datos: la limpieza
+// ocurre únicamente en la capa de respuesta de la API.
+//
+// Recorre recursivamente strings, arrays y objetos. Acepta filas de MySQL,
+// listas de filas o valores sueltos. Es segura ante null/undefined/números.
+function decodeHtmlEntities(value) {
+    if (value === null || value === undefined) return value;
+
+    if (typeof value === 'string') {
+        // he.decode resuelve entidades nombradas (&iacute;), numéricas (&#237;)
+        // y hexadecimales (&#xED;). Si no hay entidades, devuelve el mismo texto.
+        return he.decode(value);
+    }
+
+    if (Array.isArray(value)) {
+        return value.map(decodeHtmlEntities);
+    }
+
+    if (typeof value === 'object') {
+        // Conserva el tipo Date y otros objetos no planos sin tocarlos.
+        if (value instanceof Date) return value;
+        const out = {};
+        for (const k of Object.keys(value)) {
+            out[k] = decodeHtmlEntities(value[k]);
+        }
+        return out;
+    }
+
+    // number, boolean, bigint, etc. → sin cambios
+    return value;
 }
 
 // ==================== FUNCIONES DEL CHECADOR ====================
@@ -648,6 +686,195 @@ async function ejecutarLogicaGuardarForm(conn, controlador, dbfield, clave) {
     return { tablaGiro: meta.tabla, concluido: true };
 }
 
+// ==================== REGISTRO INICIAL RET (equivalente a Usuario_model->nuevo()) ====================
+
+/**
+ * Ancho (dígitos con relleno de ceros) de la parte numérica id_pts en la clave.
+ *   4 → "RET01110042"   (coincide con sprintf("%04d") del PHP Usuario_model) ← ACTUAL
+ *   5 → "RET011100042"  (formato alterno visto en la documentación)
+ * Fuente de verdad: Usuario_model->nuevo():
+ *   $clave = 'RET'.sprintf("%02d",$giro).sprintf("%02d",$municipio).sprintf("%04d",$id_pts);
+ * NOTA: es solo relleno mínimo; ids mayores al ancho crecen de forma natural.
+ */
+const RET_ID_PAD = 4;
+
+/**
+ * Genera la clave RET con el mismo patrón que el modelo PHP:
+ *   'RET' + giro(2 díg) + municipio(2 díg) + id_pts(RET_ID_PAD díg)
+ * Ej (RET_ID_PAD=4): giro=1, municipio=11, id_pts=42  →  "RET01110042"
+ *
+ * @param {number|string} giro      - ID del giro
+ * @param {number|string} municipio - ID del municipio
+ * @param {number}        idPts     - insertID() de ret_datos_generales
+ * @returns {string} Clave RET
+ */
+function generarClaveRET(giro, municipio, idPts) {
+    const pad = (val, len) => String(parseInt(val, 10)).padStart(len, '0');
+    return 'RET' + pad(giro, 2) + pad(municipio, 2) + pad(idPts, RET_ID_PAD);
+}
+
+/**
+ * Mapa giro → tabla(s) del giro donde se debe pre-insertar la clave al crear
+ * el registro inicial. Replica el switch de Usuario_model->nuevo().
+ * Solo se siembra la fila base con la clave; los datos del giro se cargan
+ * después vía /saveTabla (Paso 5).
+ */
+const GIRO_TABLA_INICIAL = {
+    1:  'ret_frm_hospedaje',
+    2:  'ret_frm_agencia',
+    3:  'ret_frm_guia',
+    4:  'ret_frm_promotores',
+    5:  'ret_frm_restaurantes',
+    6:  'ret_frm_golf',
+    7:  'ret_frm_arte',
+    8:  'ret_frm_educativas',
+    9:  'ret_frm_arrendadora',
+    10: 'ret_frm_parques',
+    11: 'ret_frm_auxturistico',
+    12: 'ret_frm_balnearios',
+    13: 'ret_frm_capacitacion',
+    14: 'ret_frm_deporte',
+    15: 'ret_frm_spa',
+    16: 'ret_frm_recinto',
+    17: 'ret_frm_hospedaje-digitales',
+};
+
+/**
+ * POST /crearRegistroRET
+ * Crea un registro RET inicial y devuelve la clave RET generada.
+ * Es el equivalente HTTP de Usuario_model->nuevo(): inserta en
+ * ret_datos_generales, genera la clave, la propaga a las tablas de pasos
+ * comunes (técnicos, legales) y a la tabla del giro elegido, y para los
+ * giros 1 y 17 pregraba las filas de detalle/establecimientos.
+ *
+ * Toda la operación corre dentro de una transacción con rollback automático.
+ *
+ * ─── Estructura del body ──────────────────────────────────────────────────
+ *  data (object) — Campos iniciales del registro. Mínimos obligatorios:
+ *    .info_rfc          (string)  — RFC del prestador.
+ *    .giro              (number)  — ID del giro (1..17).
+ *    .municipio         (number)  — ID del municipio.
+ *    .nombre_comercial  (string)  — Nombre comercial.
+ *    .correo            (string)  — Correo del prestador.
+ *  Campos opcionales se insertan tal cual lleguen en data (privacidad,
+ *  ip_visitante, etc.). NO envíes 'clave': la API la genera.
+ *
+ *  bitacora (object, opcional) — { id_user, script } para log de auditoría.
+ *
+ * ─── Respuesta exitosa ────────────────────────────────────────────────────
+ *  { "error": false,
+ *    "respuesta": "Registro creado correctamente",
+ *    "clave": "RET01110042",        ← úsala como pivote en /saveTabla
+ *    "id_pts": 42,
+ *    "giro": 1,
+ *    "municipio": 11,
+ *    "tablaGiro": "ret_frm_hospedaje" }
+ *
+ * ─── Ejemplo de petición ──────────────────────────────────────────────────
+ *  { "data": {
+ *      "info_rfc": "HCE960315AB3",
+ *      "giro": 1,
+ *      "municipio": 11,
+ *      "nombre_comercial": "HOTEL CENTRO",
+ *      "correo": "contacto@hotelcentro.com",
+ *      "privacidad": 1,
+ *      "ip_visitante": "189.203.0.1",
+ *      "fecha": "2026-05-21",
+ *      "fecha_registro": "2026-05-21 10:30:00"
+ *    },
+ *    "bitacora": { "id_user": "45", "script": "Portal/RegistroInicial" } }
+ */
+app.post('/crearRegistroRET', verifyStaticToken, async (req, res) => {
+    const { data, bitacora } = req.body || {};
+    const response = { error: true, respuesta: 'Error en la operación' };
+    let conn = null;
+
+    try {
+        // ── Validaciones básicas ───────────────────────────────────────────
+        if (!data || typeof data !== 'object') {
+            response.respuesta = 'Error|El campo data es obligatorio';
+            return res.json(response);
+        }
+
+        const requeridos = ['info_rfc', 'giro', 'municipio', 'nombre_comercial', 'correo'];
+        const faltantes = requeridos.filter(c => data[c] === undefined || data[c] === null || data[c] === '');
+        if (faltantes.length > 0) {
+            response.respuesta = `Error|Campos obligatorios faltantes: ${faltantes.join(', ')}`;
+            return res.json(response);
+        }
+
+        const giro      = parseInt(data.giro, 10);
+        const municipio = parseInt(data.municipio, 10);
+
+        if (Number.isNaN(giro) || !GIRO_TABLA_INICIAL[giro]) {
+            response.respuesta = `Error|Giro no reconocido: '${data.giro}'. Valores válidos: ${Object.keys(GIRO_TABLA_INICIAL).join(', ')}`;
+            return res.json(response);
+        }
+        if (Number.isNaN(municipio)) {
+            response.respuesta = `Error|municipio debe ser numérico`;
+            return res.json(response);
+        }
+
+        // La clave la genera la API: nunca se acepta del cliente.
+        const datosInsert = { ...data };
+        delete datosInsert.clave;
+        datosInsert.giro      = giro;
+        datosInsert.municipio = municipio;
+
+        // ── Transacción ────────────────────────────────────────────────────
+        conn = await beginTransaction();
+
+        // 1) INSERT inicial en ret_datos_generales → obtener id_pts
+        const insertResult = await txInsert(conn, 'ret_datos_generales', datosInsert);
+        const idPts = insertResult.insertId;
+
+        // 2) Generar clave RET
+        const clave = generarClaveRET(giro, municipio, idPts);
+
+        // 3) Actualizar ret_datos_generales con la clave (WHERE id_pts)
+        await txUpdate(conn, 'ret_datos_generales', { clave }, 'id_pts', idPts);
+
+        // 4) Sembrar la clave en tablas de pasos comunes
+        await txInsert(conn, 'ret_frm_tecnicos',   { clave });
+        await txInsert(conn, 'ret_archivo_legal',  { clave });
+
+        // 5) Sembrar la clave en la tabla del giro elegido
+        const tablaGiro = GIRO_TABLA_INICIAL[giro];
+        await txInsert(conn, tablaGiro, { clave });
+
+        // 6) Giros 1 (hospedaje) y 17 (hospedaje digital): pregrabar detalle/estable
+        if (giro === 1) {
+            await txInsertDetalle(conn, 'ret_frm_hospedaje_detalle', clave, 10, 'hab');
+            await txInsertDetalle(conn, 'ret_frm_hospedaje_estable', clave, 6,  'estab');
+        } else if (giro === 17) {
+            await txInsertDetalle(conn, 'ret_frm_hospedaje-digitales_detalle', clave, 10, 'hab');
+            await txInsertDetalle(conn, 'ret_frm_hospedaje-digitales_estable', clave, 6,  'estab');
+        }
+
+        await commitTransaction(conn);
+
+        // ── Respuesta ──────────────────────────────────────────────────────
+        response.error     = false;
+        response.respuesta = 'Registro creado correctamente';
+        response.clave     = clave;
+        response.id_pts    = idPts;
+        response.giro      = giro;
+        response.municipio = municipio;
+        response.tablaGiro = tablaGiro;
+
+        if (bitacora) {
+            console.log(`[BITÁCORA] crearRegistroRET clave=${clave} id_pts=${idPts} user=${bitacora.id_user || '-'} script=${bitacora.script || '-'}`);
+        }
+
+    } catch (err) {
+        console.error('❌ Error en crearRegistroRET:', err.message);
+        if (conn) await rollbackTransaction(conn);
+        response.respuesta = `Error|${err.message}`;
+    }
+
+    return res.json(response);
+});
+
 // ==================== ENDPOINT: getTabla ====================
 
 /**
@@ -712,7 +939,7 @@ app.get('/getTabla', verifyStaticToken, async (req, res) => {
             try {
                 const result = await query(data.query);
                 response.query    = data.query;
-                response.data     = result;
+                response.data     = decodeHtmlEntities(result);
                 response.error    = false;
                 response.respuesta = result.length === 0
                     ? 'No se encontraron resultados que coincidan con la búsqueda'
@@ -826,7 +1053,7 @@ app.get('/getTabla', verifyStaticToken, async (req, res) => {
 
         const result      = await query(sql, params);
         response.query    = sql;
-        response.data     = result;
+        response.data     = decodeHtmlEntities(result);
         response.error    = false;
         response.respuesta = result.length === 0
             ? 'No se encontraron resultados que coincidan con la búsqueda'
